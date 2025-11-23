@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Haptic Histology - Web UI</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            padding: 20px;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .main-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .panel {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+        }
+        
+        #scanCanvas {
+            width: 100%;
+            border: 3px solid rgba(255,255,255,0.3);
+            border-radius: 10px;
+            cursor: crosshair;
+            background: #000;
+        }
+        
+        .controls {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        
+        .btn {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-transform: uppercase;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        }
+        
+        .btn-primary {
+            background: #4CAF50;
+            color: white;
+        }
+        
+        .btn-mode {
+            background: rgba(255,255,255,0.2);
+            color: white;
+        }
+        
+        .btn-mode.active {
+            background: #FF6B6B;
+        }
+        
+        .stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        
+        .stat-box {
+            background: rgba(0,0,0,0.3);
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 32px;
+            font-weight: bold;
+            color: #4CAF50;
+        }
+        
+        .stat-label {
+            font-size: 12px;
+            opacity: 0.8;
+            margin-top: 5px;
+        }
+        
+        .density-bar {
+            width: 100%;
+            height: 30px;
+            background: rgba(0,0,0,0.3);
+            border-radius: 15px;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+        
+        .density-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #4CAF50, #FF6B6B);
+            width: 0%;
+            transition: width 0.1s;
+        }
+        
+        #uploadInput {
+            display: none;
+        }
+        
+        .upload-label {
+            display: block;
+            padding: 12px 20px;
+            background: #2196F3;
+            color: white;
+            text-align: center;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s;
+        }
+        
+        .upload-label:hover {
+            background: #1976D2;
+            transform: translateY(-2px);
+        }
+        
+        .info-text {
+            font-size: 14px;
+            opacity: 0.9;
+            margin-top: 10px;
+            text-align: center;
+        }
+        
+        @media (max-width: 768px) {
+            .main-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔬 Haptic Histology - Web Interface</h1>
+        
+        <div class="main-grid">
+            <div class="panel">
+                <h2>MRI Scan</h2>
+                <canvas id="scanCanvas" width="600" height="600"></canvas>
+                <div class="density-bar">
+                    <div class="density-fill" id="densityBar"></div>
+                </div>
+                <p class="info-text">Move cursor over scan to feel tissue density</p>
+            </div>
+            
+            <div class="panel controls">
+                <h2>Controls</h2>
+                
+                <input type="file" id="uploadInput" accept="image/*">
+                <label for="uploadInput" class="upload-label">📁 Upload MRI Scan</label>
+                
+                <div class="stats">
+                    <div class="stat-box">
+                        <div class="stat-value" id="densityValue">0</div>
+                        <div class="stat-label">Tissue Density</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-value" id="posX">0</div>
+                        <div class="stat-label">X Position</div>
+                    </div>
+                </div>
+                
+                <h3 style="margin-top: 20px;">Haptic Modes</h3>
+                <button class="btn btn-mode active" data-mode="DIRECT">Direct</button>
+                <button class="btn btn-mode" data-mode="TEXTURE">Texture</button>
+                <button class="btn btn-mode" data-mode="TUMOR_LOCK">Tumor Lock</button>
+                <button class="btn btn-mode" data-mode="EDGE_DETECT">Edge Detect</button>
+                
+                <button class="btn btn-primary" id="testBtn">🧪 Test Connection</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Socket.IO library (Arduino Lab provides this) -->
+    <script src="libs/socket.io.min.js"></script>
+    
+    <script>
+        const canvas = document.getElementById('scanCanvas');
+        const ctx = canvas.getContext('2d');
+        const densityBar = document.getElementById('densityBar');
+        const densityValue = document.getElementById('densityValue');
+        const posX = document.getElementById('posX');
+        const uploadInput = document.getElementById('uploadInput');
+        const testBtn = document.getElementById('testBtn');
+        
+        let currentImage = null;
+        let currentMode = 'DIRECT';
+        let socket;
+        
+        // Initialize Socket.IO connection
+        document.addEventListener('DOMContentLoaded', () => {
+            socket = io(`http://${window.location.host}`);
+            
+            socket.on('connect', () => {
+                console.log('Connected to Arduino Lab server!');
+                testBtn.textContent = '✅ Connected';
+                setTimeout(() => { testBtn.textContent = '🧪 Test Connection'; }, 2000);
+            });
+            
+            socket.on('disconnect', () => {
+                console.log('Disconnected from server');
+                testBtn.textContent = '❌ Disconnected';
+            });
+            
+            socket.on('image_loaded', (data) => {
+                console.log('Image loaded:', data);
+                alert(`Image loaded: ${data.status}`);
+            });
+            
+            socket.on('density_update', (data) => {
+                densityValue.textContent = data.density;
+                densityBar.style.width = ((data.density / 255) * 100) + '%';
+            });
+            
+            socket.on('mode_changed', (data) => {
+                console.log('Mode changed:', data.mode);
+            });
+        });
+        
+        // Initialize with synthetic scan
+        generateSyntheticScan();
+        
+        // File upload handler
+        uploadInput.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        // Draw image on canvas
+                        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                        currentImage = img;
+                        
+                        // Convert to base64 and send to Python
+                        const imageData = canvas.toDataURL('image/jpeg').split(',')[1];
+                        loadImageToArduino(imageData);
+                    };
+                    img.src = event.target.result;
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+        
+        // Mouse movement handler
+        canvas.addEventListener('mousemove', (e) => {
+            const rect = canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            // Normalize coordinates (0.0 to 1.0)
+            const x_norm = x / canvas.width;
+            const y_norm = y / canvas.height;
+            
+            // Send to Arduino
+            updatePosition(x_norm, y_norm);
+            
+            // Update display
+            posX.textContent = Math.round(x);
+        });
+        
+        // Mode buttons
+        document.querySelectorAll('.btn-mode').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.btn-mode').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentMode = btn.dataset.mode;
+                setMode(currentMode);
+            });
+        });
+        
+        // Test button
+        testBtn.addEventListener('click', testConnection);
+        
+        function generateSyntheticScan() {
+            // Create synthetic MRI scan for testing
+            ctx.fillStyle = '#505050';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Add tumors
+            ctx.fillStyle = '#FFFFFF';
+            ctx.beginPath();
+            ctx.arc(150, 150, 50, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.fillStyle = '#999999';
+            ctx.beginPath();
+            ctx.arc(300, 300, 70, 0, Math.PI * 2);
+            ctx.fill();
+            
+            ctx.fillStyle= '#EEEEEE';
+            ctx.beginPath();
+            ctx.arc(450, 450, 60, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Fluid area
+            ctx.fillStyle = '#222222';
+            ctx.beginPath();
+            ctx.arc(150, 450, 50, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        
+        function updatePosition(x_norm, y_norm) {
+            // Send density request to Python brain via Socket.IO
+            if (socket && socket.connected) {
+                socket.emit('get_density', { x: x_norm, y: y_norm });
+            }
+            
+            // Also update local display
+            const x = Math.floor(x_norm * canvas.width);
+            const y = Math.floor(y_norm * canvas.height);
+            const pixel = ctx.getImageData(x, y, 1, 1).data;
+            const density = pixel[0]; // Grayscale value
+            
+            posX.textContent = x;
+        }
+        
+        function loadImageToArduino(base64Data) {
+            console.log('Loading image to Arduino brain...');
+            if (socket && socket.connected) {
+                socket.emit('load_image', { image: base64Data });
+            } else {
+                alert('Not connected to Arduino Lab server!');
+            }
+        }
+        
+        function setMode(mode) {
+            console.log('Setting mode:', mode);
+            if (socket && socket.connected) {
+                socket.emit('set_mode', { mode: mode });
+            }
+        }
+        
+        function testConnection() {
+            if (socket && socket.connected) {
+                alert('✅ Connected to Arduino Lab!\nSocket ID: ' + socket.id);
+            } else {
+                alert('❌ Not connected to server');
+            }
+        }
+    </script>
+</body>
+</html>
