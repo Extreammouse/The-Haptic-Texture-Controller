@@ -247,6 +247,7 @@
             socket.on('density_update', (data) => {
                 densityValue.textContent = data.density;
                 densityBar.style.width = ((data.density / 255) * 100) + '%';
+                console.log(`[Socket] Received density update: ${data.density}`);
             });
             
             socket.on('mode_changed', (data) => {
@@ -279,21 +280,38 @@
             }
         });
         
-        // Mouse movement handler
+        // Mouse movement handler with debouncing
+        let mouseMoveTimeout;
+        let lastSentPosition = { x: -1, y: -1 };
+        
         canvas.addEventListener('mousemove', (e) => {
             const rect = canvas.getBoundingClientRect();
             const x = e.clientX - rect.left;
             const y = e.clientY - rect.top;
             
-            // Normalize coordinates (0.0 to 1.0)
-            const x_norm = x / canvas.width;
-            const y_norm = y / canvas.height;
+            // Normalize coordinates (0.0 to 1.0) using bounding rect
+            const x_norm = x / rect.width;
+            const y_norm = y / rect.height;
             
-            // Send to Arduino
-            updatePosition(x_norm, y_norm);
+            // Clamp to 0-1 range
+            const x_clamped = Math.max(0, Math.min(1, x_norm));
+            const y_clamped = Math.max(0, Math.min(1, y_norm));
             
-            // Update display
+            // Update display immediately for responsiveness
             posX.textContent = Math.round(x);
+            
+            // Debounce: only send to Python after 100ms of no movement
+            clearTimeout(mouseMoveTimeout);
+            mouseMoveTimeout = setTimeout(() => {
+                // Only send if position changed significantly (>1% movement)
+                const dx = Math.abs(x_clamped - lastSentPosition.x);
+                const dy = Math.abs(y_clamped - lastSentPosition.y);
+                
+                if (dx > 0.01 || dy > 0.01) {
+                    updatePosition(x_clamped, y_clamped);
+                    lastSentPosition = { x: x_clamped, y: y_clamped };
+                }
+            }, 100);
         });
         
         // Mode buttons
@@ -341,15 +359,18 @@
             // Send density request to Python brain via Socket.IO
             if (socket && socket.connected) {
                 socket.emit('get_density', { x: x_norm, y: y_norm });
+                
+                // Get local pixel value for comparison
+                const x = Math.floor(x_norm * canvas.width);
+                const y = Math.floor(y_norm * canvas.height);
+                const pixel = ctx.getImageData(x, y, 1, 1).data;
+                const localDensity = pixel[0];
+                
+                console.log(`[WebUI] Mouse at (${x_norm.toFixed(2)}, ${y_norm.toFixed(2)}) | Local pixel: ${localDensity}`);
+                posX.textContent = x;
+            } else {
+                console.warn('Socket not connected!');
             }
-            
-            // Also update local display
-            const x = Math.floor(x_norm * canvas.width);
-            const y = Math.floor(y_norm * canvas.height);
-            const pixel = ctx.getImageData(x, y, 1, 1).data;
-            const density = pixel[0]; // Grayscale value
-            
-            posX.textContent = x;
         }
         
         function loadImageToArduino(base64Data) {

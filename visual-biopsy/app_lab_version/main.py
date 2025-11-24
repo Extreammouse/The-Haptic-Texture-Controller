@@ -181,6 +181,10 @@ class TissueAnalyzer:
 # Initialize analyzer
 analyzer = TissueAnalyzer()
 
+# Global state for sharing with Arduino
+current_density = 0
+current_mode = "DIRECT"
+
 
 # Bridge functions for Arduino sketch
 
@@ -222,29 +226,52 @@ def on_load_image(client, data):
 
 def on_get_density(client, data):
     """Handle density request from web UI"""
+    global current_density
     if 'x' in data and 'y' in data:
         density = analyzer.get_density_normalized(data['x'], data['y'])
+        prev = current_density
+        current_density = density  # Store for Arduino to poll
+        
+        # Only log when density changes significantly (reduce spam)
+        if abs(density - prev) > 10:
+            print(f"[WebUI → Python] Position ({data['x']:.2f}, {data['y']:.2f}) → Density: {density} (was {prev})")
+        
         ui.send_message('density_update', {'density': density, 'x': data['x'], 'y': data['y']})
-        # Also send to Arduino
-        Bridge.call("update_density", density)
         return density
     return 0
 
 def on_set_mode(client, data):
     """Handle mode change from web UI"""
+    global current_mode
     if 'mode' in data:
-        Bridge.call("set_mode", data['mode'])
+        current_mode = data['mode']  # Store for Arduino to read
         ui.send_message('mode_changed', {'mode': data['mode']})
         return f"Mode set to {data['mode']}"
     return "error: no mode specified"
 
+# Functions Arduino can call to get current state
+
+def get_current_density() -> int:
+    """Arduino polls this to get latest density"""
+    # Log when Arduino actually calls this function
+    print(f"[BRIDGE CALL] Arduino requested density: {current_density}")
+    return current_density
+
+def get_current_mode() -> str:
+    """Arduino polls this to get current mode"""
+    return current_mode
+
 
 # Provide functions to Arduino sketch
+print("[BRIDGE] Registering functions for Arduino...")
 Bridge.provide("load_image", load_image)
 Bridge.provide("get_density", get_density)
 Bridge.provide("get_density_norm", get_density_norm)
 Bridge.provide("get_info", get_info)
 Bridge.provide("test_system", test_system)
+Bridge.provide("get_current_density", get_current_density)
+Bridge.provide("get_current_mode", get_current_mode)
+print("[BRIDGE] ✓ All 7 functions registered")
 
 # Initialize WebUI
 ui = WebUI()

@@ -26,8 +26,18 @@ const int EDGE_THRESHOLD = 50;
 uint32_t ledFrame[8];  // 8 rows of 32-bit words
 
 void setup() {
+  Serial.begin(115200);
+  delay(1000);  // Wait for serial
+  
+  Serial.println("======================================");
+  Serial.println("SKETCH STARTING...");
+  Serial.println("======================================");
+  
   matrixBegin();
+  Serial.println("[INIT] LED Matrix initialized");
+  
   Bridge.begin();
+  Serial.println("[INIT] Bridge started");
   
   // Test Python brain
   String test_result;
@@ -36,45 +46,78 @@ void setup() {
     Serial.println("✓ Python Brain Connected: " + test_result);
   } else {
     Serial.println("⚠ Python Brain not responding");
+    Serial.println("[ERROR] Bridge test failed!");
   }
   
   // Show startup animation
+  Serial.println("[INIT] Starting LED animation...");
   flashMatrix(3);
+  Serial.println("[INIT] Setup complete - entering loop");
 }
 
 void loop() {
-  // This will be replaced by web UI input
-  // For now, simulate mouse movement or use Serial input
+  static unsigned long lastPoll = 0;
+  static unsigned long lastHeartbeat = 0;
+  static int loopCount = 0;
+  unsigned long now = millis();
   
-  // Example: Read from Serial (for testing)
-  if (Serial.available() > 0) {
-    String input = Serial.readStringUntil('\n');
-    input.trim();
-    
-    if (input.startsWith("POS:")) {
-      // Format: "POS:0.5,0.5" (normalized coordinates)
-      int commaPos = input.indexOf(',');
-      if (commaPos > 0) {
-        String xStr = input.substring(4, commaPos);
-        String yStr = input.substring(commaPos + 1);
-        
-        float x_norm = xStr.toFloat();
-        float y_norm = yStr.toFloat();
-        
-        updateDensityFromPosition(x_norm, y_norm);
-      }
-    }
-    else if (input.startsWith("MODE:")) {
-      // Format: "MODE:TEXTURE"
-      currentMode = input.substring(5);
-      Serial.println("Mode changed to: " + currentMode);
-    }
+  // Heartbeat every 2 seconds to show Arduino is alive
+  if (now - lastHeartbeat >= 2000) {
+    Serial.print("[HEARTBEAT] Loop running, current density: ");
+    Serial.println(currentDensity);
+    lastHeartbeat = now;
   }
   
-  // Update LED matrix
-  updateLEDMatrix(currentDensity);
+  // Poll Python for current density and mode (20 Hz for responsiveness)
+  int density;
+  String mode;
   
-  delay(50);  // 20 Hz update rate
+  bool densityOk = Bridge.call("get_current_density").result(density);
+  bool modeOk = Bridge.call("get_current_mode").result(mode);
+  
+  // Debug: Always show what we got from Python
+  if (loopCount % 20 == 0) {
+    Serial.print("[POLL] Got from Python - Density: ");
+    Serial.print(density);
+    Serial.print(", Mode: ");
+    Serial.print(mode);
+    Serial.print(", Success: ");
+    Serial.println(densityOk ? "YES" : "NO");
+  }
+  
+  if (densityOk) {
+    // Only update if density actually changed
+    if (density != currentDensity) {
+      prevDensity = currentDensity;
+      currentDensity = density;
+      
+      Serial.print("[UPDATE] Density: ");
+      Serial.print(currentDensity);
+      Serial.print(" → LEDs: ");
+      int numLEDs = map(currentDensity, 0, 255, 0, 12);
+      Serial.print(numLEDs);
+      Serial.println("/12");
+      
+      // Update LEDs immediately when density changes
+      updateLEDMatrix(currentDensity);
+    }
+  } else {
+    Serial.println("[ERROR] Failed to get density from Python!");
+  }
+  
+  if (modeOk && mode != currentMode) {
+    currentMode = mode;
+    Serial.print("[Mode] Changed to: ");
+    Serial.println(currentMode);
+  }
+  
+  // Periodic refresh for mode effects (texture pulse, etc.)
+  if (loopCount % 10 == 0) {
+    updateLEDMatrix(currentDensity);
+  }
+  
+  loopCount++;
+  delay(50);  // 20 Hz polling rate
 }
 
 void updateDensityFromPosition(float x_norm, float y_norm) {
@@ -99,8 +142,8 @@ void updateLEDMatrix(int density) {
   // Apply haptic mode processing
   int displayValue = processDensity(density);
   
-  // Map density (0-255) to brightness pattern on matrix
-  // We'll use a "bar graph" style visualization
+  // Map density (0-255) to number of LED columns (0-12)
+  // 0 = no LEDs, 255 = all 12 columns lit
   
   // Clear frame
   for (int i = 0; i < 8; i++) {
@@ -110,13 +153,13 @@ void updateLEDMatrix(int density) {
   // Calculate how many columns to light (0-12)
   int numCols = map(displayValue, 0, 255, 0, 12);
   
-  // Create vertical bar graph
-  for (int col = 0; col < 12; col++) {
+  // Clamp to valid range
+  numCols = constrain(numCols, 0, 12);
+  
+  // Create vertical bar graph (fill columns from left to right)
+  for (int col = 0; col < numCols; col++) {
     for (int row = 0; row < 8; row++) {
-      if (col < numCols) {
-        // Light this LED
-        setLED(col, row, true);
-      }
+      setLED(col, row, true);
     }
   }
   
