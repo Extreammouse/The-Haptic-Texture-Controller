@@ -117,7 +117,7 @@ void loop() {
   }
   
   loopCount++;
-  delay(50);  // 20 Hz polling rate
+  delay(25);  // 40 Hz polling rate for faster response
 }
 
 void updateDensityFromPosition(float x_norm, float y_norm) {
@@ -222,13 +222,13 @@ void flashMatrix(int times) {
       ledFrame[i] = 0xFFF;  // All 12 LEDs on
     }
     matrixWrite(ledFrame);
-    delay(200);
+    delay(100);
     
     // Clear matrix
     for (int i = 0; i < 8; i++) {
       ledFrame[i] = 0;
     }
     matrixWrite(ledFrame);
-    delay(200);
+    delay(100);
   }
 }

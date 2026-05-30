@@ -300,18 +300,18 @@
             // Update display immediately for responsiveness
             posX.textContent = Math.round(x);
             
-            // Debounce: only send to Python after 100ms of no movement
+            // Debounce: only send to Python after 30ms of no movement
             clearTimeout(mouseMoveTimeout);
             mouseMoveTimeout = setTimeout(() => {
-                // Only send if position changed significantly (>1% movement)
+                // Only send if position changed significantly (>0.5% movement)
                 const dx = Math.abs(x_clamped - lastSentPosition.x);
                 const dy = Math.abs(y_clamped - lastSentPosition.y);
                 
-                if (dx > 0.01 || dy > 0.01) {
+                if (dx > 0.005 || dy > 0.005) {
                     updatePosition(x_clamped, y_clamped);
                     lastSentPosition = { x: x_clamped, y: y_clamped };
                 }
-            }, 100);
+            }, 30);
         });
         
         // Mode buttons

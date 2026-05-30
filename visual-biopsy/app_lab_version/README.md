@@ -337,3 +337,23 @@ This is an educational demonstration only. Real medical diagnosis requires:
 
 **Version**: 2.0.0 (Arduino Lab Edition)  
 **Date**: November 2025
+
+
+
+# 1. Start with MRI image (grayscale 0-255)
+pixels = [34, 89, 245, 88, 240, 35, ...]  # Brightness values
+
+# 2. K-Means finds 3 "centroids" (cluster centers)
+centroids = [8, 94, 168]
+#            ↑   ↑    ↑
+#         Fluid Tissue Tumor
+
+# 3. Each pixel gets assigned to nearest centroid
+pixel = 245  → Closest to 168 → Cluster 2 (Tumor)
+pixel = 35   → Closest to 8   → Cluster 0 (Fluid)
+pixel = 89   → Closest to 94  → Cluster 1 (Tissue)
+
+# 4. Map clusters to haptic density (for LEDs)
+Cluster 0 (Fluid)  → Density 0   → 0 LEDs
+Cluster 1 (Tissue) → Density 128 → 6 LEDs
+Cluster 2 (Tumor)  → Density 255 → 12 LEDs
